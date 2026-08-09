@@ -11,7 +11,7 @@
 // Ren spellogik (inga sidoeffekter, inget DOM/Firebase) + renderBoard
 // (eget bräde — två hav, inte det generiska rutnätet).
 
-import { otherSymbolOf } from "./shared.js?v=47";
+import { otherSymbolOf } from "./shared.js?v=48";
 
 export const meta = {
     id: "battleship",

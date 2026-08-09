@@ -39,7 +39,7 @@ body {
 body.bg-start {
     background:
         linear-gradient(to bottom, rgba(11, 12, 16, 0.25) 0%, rgba(11, 12, 16, 0.55) 55%, rgba(11, 12, 16, 0.92) 100%),
-        url("assets/bg-dogs.jpg?v=47") center bottom / cover no-repeat;
+        url("assets/bg-dogs.jpg?v=48") center bottom / cover no-repeat;
 }
 
 /* Genomskinligt kort på startsidorna så bakgrundsbilden skymtar igenom

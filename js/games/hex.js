@@ -27,7 +27,7 @@
 // ursprungliga drag var för Svart. Bara giltigt en enda gång, precis
 // efter det allra första draget (round.board.stones har exakt 1 sten).
 
-import { otherSymbolOf } from "./shared.js?v=47";
+import { otherSymbolOf } from "./shared.js?v=48";
 
 const SIZE = 11;
 const CELL_COUNT = SIZE * SIZE;
