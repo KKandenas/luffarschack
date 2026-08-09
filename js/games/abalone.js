@@ -29,7 +29,7 @@
 // (Go/Kvarn) och inte bara en engångsplacering i en tom ruta (Hex). Se
 // rendering-sektionen längst ner för själva pixel-omvandlingen.
 
-import { otherSymbolOf } from "./shared.js?v=47";
+import { otherSymbolOf } from "./shared.js?v=48";
 
 export const meta = {
     id: "abalone",
