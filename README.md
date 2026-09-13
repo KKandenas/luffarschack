@@ -19,7 +19,8 @@ backend. Inga byggverktyg krävs.
   (vågrätt, lodrätt eller diagonalt); de fångade brickorna vänds till
   din färg. Saknar man lagliga drag hoppar turen automatiskt över.
   Ronden slutar när ingen av spelarna kan dra mer — flest brickor
-  vinner (oavgjort vid lika antal).
+  vinner (oavgjort vid lika antal). Går även att spela mot AI (tre
+  svårighetsgrader, se "Spela mot AI" nedan).
 - **Backgammon** — fullständiga reglerna inklusive dubbleringstärning
   och gammon/backgammon-poäng (`round.pointValue`, visas som "(2/3
   poäng)" i statusraden). En medveten förenkling: appen kräver inte att
@@ -144,15 +145,18 @@ nedan.
 
 ## Spela mot AI
 
-Vissa spel (hittills **Dam** och **Kvarn**) kan spelas mot en inbyggd
-AI-motståndare istället för mot en vän — inget rum, ingen Firebase
-inblandad alls: hela partiet körs lokalt i webbläsaren (se
+Vissa spel (hittills **Dam**, **Kvarn** och **Othello**) kan spelas mot
+en inbyggd AI-motståndare istället för mot en vän — inget rum, ingen
+Firebase inblandad alls: hela partiet körs lokalt i webbläsaren (se
 `startLocalGame`/`applyLocalAction`/`scheduleAiTurn` i `js/main.js`).
 AI:n exponeras av spelmodulen själv via en valfri `getAiMove(round,
 aiSymbol, difficulty)`-export (se `js/games/checkers.js`/
-`js/games/kvarn.js`) och markeras med `meta.supportsAi = true` — det är
-det enda som krävs för att ett spel ska få lägesvalet "vän eller AI" på
-hemskärmen.
+`js/games/kvarn.js`/`js/games/othello.js`) och markeras med
+`meta.supportsAi = true` — det är det enda som krävs för att ett spel
+ska få lägesvalet "vän eller AI" på hemskärmen. Othello är dessutom det
+första AI-stödjande spelet som använder det generiska rutnätssystemet
+(inte ett eget `renderBoard`) — samma delegerade klick-lyssnare på
+`#board` fungerar rakt av för lokala AI-partier också.
 
 Tre svårighetsgrader (`easy`/`medium`/`hard`):
 
@@ -249,7 +253,7 @@ eller Pythons inbyggda server:
         registry.js          Register över alla spel (id → modul) — hit läggs nya spel
         shared.js            Hjälpfunktioner gemensamma för alla spel
         tictactoe.js         Luffarschack: regler + UI-hooks (rutnätsbräde)
-        othello.js           Othello: regler + UI-hooks (rutnätsbräde)
+        othello.js           Othello: regler + UI-hooks (rutnätsbräde) + AI
         backgammon.js         Backgammon: regler + eget bräde (renderBoard)
         battleship.js          Sänka skepp: regler + eget bräde (placering + strid, renderBoard)
         connectfour.js         4 i rad: regler + UI-hooks (rutnätsbräde, klick i kolumn -> droppar)

@@ -7,7 +7,7 @@
 // alltid löses inom samma atomära skrivning som själva draget, utan
 // någon separat "auto-advance"-mekanism.
 
-import { otherSymbolOf } from "./shared.js?v=50";
+import { otherSymbolOf } from "./shared.js?v=51";
 
 export const meta = {
     id: "othello",
@@ -17,6 +17,7 @@ export const meta = {
     cols: 8,
     boardClass: "board--othello",
     showGlyph: false,
+    supportsAi: true,
     rules: [
         "Lägg en bricka så att den fångar in en eller flera av motståndarens brickor i en rak linje (vågrätt, lodrätt eller diagonalt) mellan din nya bricka och en annan av dina egna brickor.",
         "De infångade brickorna vänds till din färg.",
@@ -141,6 +142,138 @@ export function onCellClick({ board, mySymbol, cellIndex, sendAction }) {
     if (board?.[cellIndex]) return;
     if (flipsFor(board, cellIndex, mySymbol).length === 0) return;
     sendAction({ type: "place", cell: cellIndex });
+}
+
+// ============================================================
+// AI-motstånd — samma mönster som checkers.js/kvarn.js: återanvänder
+// applyAction via en "scratch"-rond (turn = symbolen själv) istället för
+// att duplicera regellogiken. resolveTurn:s automatiska "hoppa över"
+// (round.turn förblir samma spelare om motståndaren saknar lagliga drag)
+// hanteras helt gratis av det här upplägget — minimax bryr sig bara om
+// vems tur round.turn faktiskt pekar på i varje läge.
+// ============================================================
+
+function shuffled(list) {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+function listLegalActions(round, symbol) {
+    return legalMoves(round.board, symbol).map((cell) => ({ type: "place", cell }));
+}
+
+function simulateAction(round, action, symbol) {
+    return applyAction(round, action, symbol, symbol, otherSymbolOf(symbol));
+}
+
+const CORNERS = [0, 7, 56, 63];
+// Rutan diagonalt intill varje hörn ("X-ruta") — farlig att lägga sig på
+// medan hörnet fortfarande är ledigt, för då kan motståndaren ofta ta
+// hörnet direkt härnäst.
+const X_SQUARE_OF_CORNER = { 0: 9, 7: 14, 56: 49, 63: 54 };
+
+function evaluatePosition(round, aiSymbol) {
+    const board = round.board;
+    const oppSymbol = otherSymbolOf(aiSymbol);
+    const counts = countDiscs(board);
+    const emptyCount = SIZE * SIZE - counts.X - counts.O;
+
+    let score = 0;
+    for (const corner of CORNERS) {
+        if (board[corner] === aiSymbol) score += 30;
+        else if (board[corner] === oppSymbol) score -= 30;
+    }
+    for (const [cornerStr, xSquare] of Object.entries(X_SQUARE_OF_CORNER)) {
+        if (board[Number(cornerStr)]) continue; // hörnet är redan taget, ingen fara längre
+        if (board[xSquare] === aiSymbol) score -= 12;
+        else if (board[xSquare] === oppSymbol) score += 12;
+    }
+
+    const myMoves = legalMoves(board, aiSymbol).length;
+    const oppMoves = legalMoves(board, oppSymbol).length;
+    score += (myMoves - oppMoves) * 2;
+
+    // Antal brickor spelar nästan ingen roll förrän slutspelet — då
+    // väger det tungt (sista raderna avgör ofta hela utgången).
+    const materialWeight = emptyCount < 12 ? 1.5 : 0.1;
+    score += (counts[aiSymbol] - counts[oppSymbol]) * materialWeight;
+
+    return score;
+}
+
+// Minimax med alpha-beta-beskärning. Ett djup är EN placering — ett
+// "hopp över"-läge (resolveTurn låter samma spelare fortsätta) räknas
+// därför som ett extra djup för samma sida, precis som i motorn.
+function minimax(round, aiSymbol, depth, alpha, beta, deadline) {
+    if (round.winner) {
+        if (round.winner === aiSymbol) return 500 + depth;
+        if (round.winner === "draw") return 0;
+        return -500 - depth;
+    }
+    if (depth <= 0 || Date.now() > deadline) {
+        return evaluatePosition(round, aiSymbol);
+    }
+
+    const toMove = round.turn;
+    const maximizing = toMove === aiSymbol;
+    const actions = shuffled(listLegalActions(round, toMove));
+    if (actions.length === 0) return evaluatePosition(round, aiSymbol);
+
+    let best = maximizing ? -Infinity : Infinity;
+    for (const action of actions) {
+        const nextRound = simulateAction(round, action, toMove);
+        const score = minimax(nextRound, aiSymbol, depth - 1, alpha, beta, deadline);
+        if (maximizing) {
+            best = Math.max(best, score);
+            alpha = Math.max(alpha, best);
+        } else {
+            best = Math.min(best, score);
+            beta = Math.min(beta, best);
+        }
+        if (beta <= alpha) break;
+        if (Date.now() > deadline) break;
+    }
+    return best;
+}
+
+const AI_BUDGET_MS = { medium: 250, hard: 700 };
+const AI_MAX_DEPTH = { medium: 6, hard: 10 };
+
+// Returnerar en handling ({ type: "place", cell }) åt AI:n, eller `null`
+// om den (mot förmodan) saknar lagliga drag.
+export function getAiMove(round, aiSymbol, difficulty) {
+    const scratchRound = { board: round.board, turn: aiSymbol, winner: null };
+    const actions = shuffled(listLegalActions(scratchRound, aiSymbol));
+    if (actions.length === 0) return null;
+    if (difficulty === "easy") return actions[0];
+
+    const deadline = Date.now() + (AI_BUDGET_MS[difficulty] || AI_BUDGET_MS.medium);
+    const maxDepth = AI_MAX_DEPTH[difficulty] || AI_MAX_DEPTH.medium;
+
+    let best = actions[0];
+    for (let depth = 2; depth <= maxDepth; depth++) {
+        if (Date.now() > deadline) break;
+        let alpha = -Infinity;
+        let roundBest = null;
+        let roundBestScore = -Infinity;
+        for (const action of actions) {
+            const nextRound = simulateAction(scratchRound, action, aiSymbol);
+            const score = minimax(nextRound, aiSymbol, depth - 1, alpha, Infinity, deadline);
+            if (score > roundBestScore) {
+                roundBestScore = score;
+                roundBest = action;
+            }
+            alpha = Math.max(alpha, roundBestScore);
+        }
+        if (roundBest && Date.now() <= deadline) {
+            best = roundBest;
+        }
+    }
+    return best;
 }
 
 export function statusText({ board, myTurn, mySymbol }) {
