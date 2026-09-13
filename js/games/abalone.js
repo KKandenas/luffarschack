@@ -29,13 +29,14 @@
 // (Go/Kvarn) och inte bara en engångsplacering i en tom ruta (Hex). Se
 // rendering-sektionen längst ner för själva pixel-omvandlingen.
 
-import { otherSymbolOf } from "./shared.js?v=54";
+import { otherSymbolOf } from "./shared.js?v=55";
 
 export const meta = {
     id: "abalone",
     label: "Abalone",
     description: "Putta 6 av motståndarens kulor av det sexkantiga brädets kant för att vinna.",
     boardClass: "board--abalone",
+    supportsAi: true,
     rules: [
         "Varje spelare har 14 kulor på ett sexkantigt bräde. Flytta 1, 2 eller 3 av dina egna kulor i en rak, sammanhängande rad åt gången.",
         "Sidledes (vinkelrätt mot radens egen linje): alla rutor du flyttar till måste vara helt lediga.",
@@ -269,6 +270,147 @@ export function applyAction(round, action, playerId, mySymbol, otherPlayerId) {
         return { ...round, board, winner: mySymbol, winLine: null, lastMove };
     }
     return { ...round, board, turn: otherPlayerId, lastMove };
+}
+
+// ============================================================
+// AI-motstånd — samma mönster som checkers.js/kvarn.js/othello.js:
+// återanvänder applyAction (via en "scratch"-rond där turn = symbolen
+// själv) för att simulera drag under sökningen, istället för att
+// duplicera regellogiken.
+// ============================================================
+
+function shuffled(list) {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+// Alla sammanhängande grupper (1, 2 eller 3) av EGNA kulor — varje par/
+// trippel räknas bara en gång (utgår alltid från dess BAKRE ände längs
+// axelns "representativa" riktning), inte en gång per medlemskula.
+const AXIS_REPS = [DIRECTIONS[0], DIRECTIONS[2], DIRECTIONS[4]];
+
+function enumerateGroups(marbles, symbol) {
+    const groups = [];
+    for (const key in marbles) {
+        if (marbles[key] !== symbol) continue;
+        const c = Number(key);
+        groups.push([c]);
+        for (const dir of AXIS_REPS) {
+            const n2 = neighborId(c, dir);
+            if (n2 === undefined || marbles[n2] !== symbol) continue;
+            groups.push([c, n2]);
+            const n3 = neighborId(n2, dir);
+            if (n3 !== undefined && marbles[n3] === symbol) groups.push([c, n2, n3]);
+        }
+    }
+    return groups;
+}
+
+// Alla lagliga handlingar för `symbol` — samma tryMove som den riktiga
+// motorn/UI:ts hint-beräkning använder, så AI:n kan aldrig råka hitta på
+// ett drag den riktiga motorn skulle underkänt.
+function listLegalActions(marbles, symbol) {
+    const actions = [];
+    for (const cells of enumerateGroups(marbles, symbol)) {
+        for (const dir of DIRECTIONS) {
+            if (tryMove(marbles, cells, dir, symbol)) actions.push({ type: "move", cells, direction: dir });
+        }
+    }
+    return actions;
+}
+
+function simulateAction(round, action, symbol) {
+    return applyAction(round, action, symbol, symbol, otherSymbolOf(symbol));
+}
+
+// Kulantal väger tungt (fångster avgör ronden direkt), centralisering är
+// en sekundär positionell knuff — kulor nära mitten är svårare att putta
+// av kanten, klassisk Abalone-heuristik.
+function evaluateBoard(marbles, aiSymbol) {
+    const oppSymbol = otherSymbolOf(aiSymbol);
+    let score = (onBoardCount(marbles, aiSymbol) - onBoardCount(marbles, oppSymbol)) * 100;
+    for (const key in marbles) {
+        const cell = Number(key);
+        const { q, r } = CELLS[cell];
+        const dist = (Math.abs(q) + Math.abs(r) + Math.abs(q + r)) / 2;
+        const centerBonus = RADIUS - dist;
+        score += marbles[key] === aiSymbol ? centerBonus : -centerBonus;
+    }
+    return score;
+}
+
+// Minimax med alpha-beta-beskärning och iterative deepening inom en
+// tidsbudget — samma upplägg som Dam/Kvarn/Othello.
+function minimax(round, aiSymbol, depth, alpha, beta, deadline) {
+    if (round.winner) {
+        if (round.winner === aiSymbol) return 10000 + depth;
+        return -10000 - depth;
+    }
+    if (depth <= 0 || Date.now() > deadline) {
+        return evaluateBoard(round.board.marbles, aiSymbol);
+    }
+
+    const toMove = round.turn;
+    const maximizing = toMove === aiSymbol;
+    const actions = shuffled(listLegalActions(round.board.marbles, toMove));
+    if (actions.length === 0) return evaluateBoard(round.board.marbles, aiSymbol);
+
+    let best = maximizing ? -Infinity : Infinity;
+    for (const action of actions) {
+        const nextRound = simulateAction(round, action, toMove);
+        const score = minimax(nextRound, aiSymbol, depth - 1, alpha, beta, deadline);
+        if (maximizing) {
+            best = Math.max(best, score);
+            alpha = Math.max(alpha, best);
+        } else {
+            best = Math.min(best, score);
+            beta = Math.min(beta, best);
+        }
+        if (beta <= alpha) break;
+        if (Date.now() > deadline) break;
+    }
+    return best;
+}
+
+const AI_BUDGET_MS = { medium: 250, hard: 700 };
+const AI_MAX_DEPTH = { medium: 4, hard: 6 };
+
+// Returnerar en handling åt AI:n ({ type: "move", cells, direction }),
+// eller `null` om den (mot förmodan) saknar lagliga drag.
+export function getAiMove(round, aiSymbol, difficulty) {
+    const marbles = round.board?.marbles || {};
+    const actions = shuffled(listLegalActions(marbles, aiSymbol));
+    if (actions.length === 0) return null;
+    if (difficulty === "easy") return actions[0];
+
+    const scratchRound = { board: { marbles }, turn: aiSymbol, winner: null };
+    const deadline = Date.now() + (AI_BUDGET_MS[difficulty] || AI_BUDGET_MS.medium);
+    const maxDepth = AI_MAX_DEPTH[difficulty] || AI_MAX_DEPTH.medium;
+
+    let best = actions[0];
+    for (let depth = 2; depth <= maxDepth; depth++) {
+        if (Date.now() > deadline) break;
+        let alpha = -Infinity;
+        let roundBest = null;
+        let roundBestScore = -Infinity;
+        for (const action of actions) {
+            const nextRound = simulateAction(scratchRound, action, aiSymbol);
+            const score = minimax(nextRound, aiSymbol, depth - 1, alpha, Infinity, deadline);
+            if (score > roundBestScore) {
+                roundBestScore = score;
+                roundBest = action;
+            }
+            alpha = Math.max(alpha, roundBestScore);
+        }
+        if (roundBest && Date.now() <= deadline) {
+            best = roundBest;
+        }
+    }
+    return best;
 }
 
 export function statusText({ round, myTurn, mySymbol }) {

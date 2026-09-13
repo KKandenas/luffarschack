@@ -114,7 +114,8 @@ backend. Inga byggverktyg krävs.
   motståndarens kulor. Spelmotorns kärnfunktion (`tryMove`) delas mellan
   den riktiga servervalideringen och UI:ts beräkning av vilka riktningar
   som är lagliga just nu — se kommentaren högst upp i
-  `js/games/abalone.js` för detaljer.
+  `js/games/abalone.js` för detaljer. Går även att spela mot AI (tre
+  svårighetsgrader, se "Spela mot AI" nedan).
 
 Fler spel läggs till i `js/games/` — se "Lägga till ett nytt spel"
 nedan.
@@ -148,22 +149,23 @@ nedan.
 
 ## Spela mot AI
 
-Vissa spel (hittills **Dam**, **Kvarn**, **Othello**, **Go** och
-**Backgammon**) kan spelas mot en inbyggd AI-motståndare istället för
-mot en vän — inget rum, ingen Firebase inblandad alls: hela partiet
-körs lokalt i webbläsaren (se
+Vissa spel (hittills **Dam**, **Kvarn**, **Othello**, **Go**,
+**Backgammon** och **Abalone**) kan spelas mot en inbyggd
+AI-motståndare istället för mot en vän — inget rum, ingen Firebase
+inblandad alls: hela partiet körs lokalt i webbläsaren (se
 `startLocalGame`/`applyLocalAction`/`scheduleAiTurn` i `js/main.js`).
 AI:n exponeras av spelmodulen själv via en valfri `getAiMove(round,
 aiSymbol, difficulty, aiPlayerId)`-export (se `js/games/checkers.js`/
 `js/games/kvarn.js`/`js/games/othello.js`/`js/games/go.js`/
-`js/games/backgammon.js`) och markeras med `meta.supportsAi = true` —
-det är det enda som krävs för att ett spel ska få lägesvalet "vän eller
-AI" på hemskärmen. Den fjärde parametern (`aiPlayerId`, alltid `"ai"` i
-ett lokalt AI-parti) är valfri — bara Backgammon använder den (se
-nedan), övriga spel ignorerar den. Othello är dessutom det första
-AI-stödjande spelet som använder det generiska rutnätssystemet (inte
-ett eget `renderBoard`) — samma delegerade klick-lyssnare på `#board`
-fungerar rakt av för lokala AI-partier också.
+`js/games/backgammon.js`/`js/games/abalone.js`) och markeras med
+`meta.supportsAi = true` — det är det enda som krävs för att ett spel
+ska få lägesvalet "vän eller AI" på hemskärmen. Den fjärde parametern
+(`aiPlayerId`, alltid `"ai"` i ett lokalt AI-parti) är valfri — bara
+Backgammon använder den (se nedan), övriga spel ignorerar den. Othello
+är dessutom det första AI-stödjande spelet som använder det generiska
+rutnätssystemet (inte ett eget `renderBoard`) — samma delegerade
+klick-lyssnare på `#board` fungerar rakt av för lokala AI-partier
+också.
 
 Tre svårighetsgrader (`easy`/`medium`/`hard`):
 
@@ -296,7 +298,7 @@ eller Pythons inbyggda server:
         go.js                    Go: regler + eget bräde (linjeskärningspunkter, renderBoard) + AI
         kvarn.js                  Kvarn: regler + eget bräde (linjeskärningspunkter, renderBoard) + AI
         hex.js                     Hex: regler + eget bräde (sexkants-SVG, renderBoard)
-        abalone.js                  Abalone: regler + eget bräde (sexkants-SVG, renderBoard)
+        abalone.js                  Abalone: regler + eget bräde (sexkants-SVG, renderBoard) + AI
 
 ## Lägga till ett nytt spel
 
