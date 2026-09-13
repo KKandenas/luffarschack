@@ -32,13 +32,14 @@
 // relevant efter att denne placerat klart, se isFinishedPlacing), eller
 // är helt blockerad (inget lagligt drag) i flytt-/flygfasen.
 
-import { otherSymbolOf } from "./shared.js?v=49";
+import { otherSymbolOf } from "./shared.js?v=50";
 
 export const meta = {
     id: "kvarn",
     label: "Kvarn",
     description: "Bilda kvarnar (tre i rad) för att ta motståndarens brickor — färre än 3 kvar eller helt blockerad förlorar.",
     boardClass: "board--kvarn",
+    supportsAi: true,
     rules: [
         "Varje spelare har 9 brickor. Placera en bricka i taget på en ledig punkt tills alla dina 9 är utplacerade.",
         "När alla brickor är placerade flyttar du istället en av dina brickor längs en linje till en ledig punkt som är direkt förbunden med den.",
@@ -231,6 +232,171 @@ export function applyAction(round, action, playerId, mySymbol, otherPlayerId) {
     if (action.type === "place") return applyPlace(round, action, mySymbol, otherPlayerId);
     if (action.type === "move") return applyMove(round, action, mySymbol, otherPlayerId);
     return round;
+}
+
+// ============================================================
+// AI-motstånd — samma mönster som checkers.js: återanvänder
+// applyAction/legalitetsfunktionerna via en "scratch"-rond (turn =
+// symbolen själv) istället för att duplicera regellogiken, så AI:n
+// aldrig kan råka spela ett drag den riktiga motorn skulle underkänt.
+// ============================================================
+
+function shuffled(list) {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+// Alla lagliga handlingar för `symbol` i den aktuella ställningen —
+// place/move/fly eller (om en kvarn just bildats) remove.
+function listLegalActions(round, symbol) {
+    const points = round.board?.points || {};
+    const actions = [];
+
+    if (round.pendingRemoval) {
+        const otherSymbol = otherSymbolOf(symbol);
+        for (const key in points) {
+            const cell = Number(key);
+            if (canRemoveTarget(points, cell, otherSymbol)) actions.push({ type: "remove", cell });
+        }
+        return actions;
+    }
+
+    if (isPlacingPhase(round, symbol)) {
+        for (let cell = 0; cell < POINT_COUNT; cell++) {
+            if (!points[cell]) actions.push({ type: "place", cell });
+        }
+        return actions;
+    }
+
+    const flying = isFlying(points, symbol, round.placed?.[symbol] || 0);
+    for (const key in points) {
+        if (points[key] !== symbol) continue;
+        const from = Number(key);
+        if (flying) {
+            for (let to = 0; to < POINT_COUNT; to++) if (!points[to]) actions.push({ type: "move", from, to });
+        } else {
+            for (const to of ADJACENCY[from]) if (!points[to]) actions.push({ type: "move", from, to });
+        }
+    }
+    return actions;
+}
+
+// Simulerar en handling med `applyAction` genom att låta symbolen själv
+// vara "playerId" — applyAction bryr sig bara om att playerId matchar
+// round.turn och används som nästa spelares identitet.
+function simulateAction(round, action, symbol) {
+    return applyAction(round, action, symbol, symbol, otherSymbolOf(symbol));
+}
+
+// Antal "öppna" kvarnhot (två egna brickor i en linje + tom tredje
+// punkt) — uppmuntrar AI:n att bygga upp hot istället för att bara
+// räkna brickor, annars ser den inte skillnad på en bra och en dålig
+// placering förrän kvarnen faktiskt redan finns.
+function countMillThreats(points, symbol) {
+    let count = 0;
+    for (const mill of MILLS) {
+        let mine = 0;
+        let empty = 0;
+        for (const cell of mill) {
+            if (points[cell] === symbol) mine++;
+            else if (!points[cell]) empty++;
+        }
+        if (mine === 2 && empty === 1) count++;
+    }
+    return count;
+}
+
+function evaluatePosition(round, aiSymbol) {
+    const points = round.board?.points || {};
+    const oppSymbol = otherSymbolOf(aiSymbol);
+    let score = (onBoardCount(points, aiSymbol) - onBoardCount(points, oppSymbol)) * 10;
+    score += (countMillThreats(points, aiSymbol) - countMillThreats(points, oppSymbol)) * 3;
+    for (const key in points) {
+        const degree = ADJACENCY[Number(key)].length;
+        score += points[key] === aiSymbol ? degree * 0.3 : -degree * 0.3;
+    }
+    return score;
+}
+
+// Minimax med alpha-beta-beskärning. Ett "djup" är en enskild handling
+// (place/move/remove), inte ett helt drag mellan spelarbyten — en
+// kvarn (pendingRemoval) räknas alltså som ett extra djup för samma
+// sida, precis som i den riktiga spelmotorn.
+function minimax(round, aiSymbol, depth, alpha, beta, deadline) {
+    if (round.winner) {
+        if (round.winner === aiSymbol) return 500 + depth;
+        return -500 - depth;
+    }
+    if (depth <= 0 || Date.now() > deadline) {
+        return evaluatePosition(round, aiSymbol);
+    }
+
+    const toMove = round.turn;
+    const maximizing = toMove === aiSymbol;
+    const actions = shuffled(listLegalActions(round, toMove));
+    if (actions.length === 0) return maximizing ? -500 - depth : 500 + depth;
+
+    let best = maximizing ? -Infinity : Infinity;
+    for (const action of actions) {
+        const nextRound = simulateAction(round, action, toMove);
+        const score = minimax(nextRound, aiSymbol, depth - 1, alpha, beta, deadline);
+        if (maximizing) {
+            best = Math.max(best, score);
+            alpha = Math.max(alpha, best);
+        } else {
+            best = Math.min(best, score);
+            beta = Math.min(beta, best);
+        }
+        if (beta <= alpha) break;
+        if (Date.now() > deadline) break;
+    }
+    return best;
+}
+
+const AI_BUDGET_MS = { medium: 250, hard: 700 };
+const AI_MAX_DEPTH = { medium: 6, hard: 10 };
+
+// Returnerar en handling åt AI:n ({ type: "place"/"move"/"remove", ... }),
+// eller `null` om den (mot förmodan) saknar lagliga drag.
+export function getAiMove(round, aiSymbol, difficulty) {
+    const scratchRound = {
+        board: round.board,
+        turn: aiSymbol,
+        placed: round.placed,
+        pendingRemoval: round.pendingRemoval,
+        winner: null,
+    };
+    const actions = shuffled(listLegalActions(scratchRound, aiSymbol));
+    if (actions.length === 0) return null;
+    if (difficulty === "easy") return actions[0];
+
+    const deadline = Date.now() + (AI_BUDGET_MS[difficulty] || AI_BUDGET_MS.medium);
+    const maxDepth = AI_MAX_DEPTH[difficulty] || AI_MAX_DEPTH.medium;
+
+    let best = actions[0];
+    for (let depth = 2; depth <= maxDepth; depth++) {
+        if (Date.now() > deadline) break;
+        let alpha = -Infinity;
+        let roundBest = null;
+        let roundBestScore = -Infinity;
+        for (const action of actions) {
+            const nextRound = simulateAction(scratchRound, action, aiSymbol);
+            const score = minimax(nextRound, aiSymbol, depth - 1, alpha, Infinity, deadline);
+            if (score > roundBestScore) {
+                roundBestScore = score;
+                roundBest = action;
+            }
+            alpha = Math.max(alpha, roundBestScore);
+        }
+        if (roundBest && Date.now() <= deadline) {
+            best = roundBest;
+        }
+    }
+    return best;
 }
 
 export function statusText({ round, myTurn, mySymbol }) {

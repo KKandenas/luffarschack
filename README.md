@@ -50,9 +50,8 @@ backend. Inga byggverktyg krävs.
   fortsätta slå om den kan, UTOM om den precis krönts till dam — då
   stannar den). Motståndaren förlorar om denne helt saknar lagliga drag
   (inga brickor kvar ELLER blockerad) — inget forcerat oavgjort. Se
-  kommentaren högst upp i `js/games/checkers.js` för detaljer. Enda
-  spelet hittills som även går att spela mot AI (tre svårighetsgrader,
-  se "Spela mot AI" nedan).
+  kommentaren högst upp i `js/games/checkers.js` för detaljer. Går även
+  att spela mot AI (tre svårighetsgrader, se "Spela mot AI" nedan).
 - **Go** (Baduk/Weiqi) — 9x9-bräde ("enkel" storlek), spelat på
   linjeskärningspunkter istället för i rutor (renderas därför helt av
   `js/games/go.js`, inte det generiska rutnätssystemet — en SVG för
@@ -79,6 +78,8 @@ backend. Inga byggverktyg krävs.
   helt blockerad. Medvetna förenklingar (svängande kvarn tillåts
   obegränsat, en dubbel-kvarn i samma drag ger ändå bara EN borttagen
   bricka) — se kommentaren högst upp i `js/games/kvarn.js` för detaljer.
+  Går även att spela mot AI (tre svårighetsgrader, se "Spela mot AI"
+  nedan).
 - **Hex** — 11x11-romb av hopkopplade sexkanter (klassisk tävlingsstorlek).
   Egen rendering i `js/games/hex.js`: hela brädet är EN SVG med
   matematiskt exakt placerade sexkants-`<polygon>`-element, inte
@@ -143,12 +144,13 @@ nedan.
 
 ## Spela mot AI
 
-Vissa spel (hittills **Dam**) kan spelas mot en inbyggd AI-motståndare
-istället för mot en vän — inget rum, ingen Firebase inblandad alls: hela
-partiet körs lokalt i webbläsaren (se `startLocalGame`/`applyLocalAction`/
-`scheduleAiTurn` i `js/main.js`). AI:n exponeras av spelmodulen själv via
-en valfri `getAiMove(round, aiSymbol, difficulty)`-export (se
-`js/games/checkers.js`) och markeras med `meta.supportsAi = true` — det är
+Vissa spel (hittills **Dam** och **Kvarn**) kan spelas mot en inbyggd
+AI-motståndare istället för mot en vän — inget rum, ingen Firebase
+inblandad alls: hela partiet körs lokalt i webbläsaren (se
+`startLocalGame`/`applyLocalAction`/`scheduleAiTurn` i `js/main.js`).
+AI:n exponeras av spelmodulen själv via en valfri `getAiMove(round,
+aiSymbol, difficulty)`-export (se `js/games/checkers.js`/
+`js/games/kvarn.js`) och markeras med `meta.supportsAi = true` — det är
 det enda som krävs för att ett spel ska få lägesvalet "vän eller AI" på
 hemskärmen.
 
@@ -251,9 +253,9 @@ eller Pythons inbyggda server:
         backgammon.js         Backgammon: regler + eget bräde (renderBoard)
         battleship.js          Sänka skepp: regler + eget bräde (placering + strid, renderBoard)
         connectfour.js         4 i rad: regler + UI-hooks (rutnätsbräde, klick i kolumn -> droppar)
-        checkers.js             Dam: regler + eget bräde (renderBoard)
+        checkers.js             Dam: regler + eget bräde (renderBoard) + AI
         go.js                    Go: regler + eget bräde (linjeskärningspunkter, renderBoard)
-        kvarn.js                  Kvarn: regler + eget bräde (linjeskärningspunkter, renderBoard)
+        kvarn.js                  Kvarn: regler + eget bräde (linjeskärningspunkter, renderBoard) + AI
         hex.js                     Hex: regler + eget bräde (sexkants-SVG, renderBoard)
         abalone.js                  Abalone: regler + eget bräde (sexkants-SVG, renderBoard)
 
