@@ -11,7 +11,7 @@
     <link rel="apple-touch-icon" href="assets/icon.svg">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="stylesheet" href="style.css?v=48">
+    <link rel="stylesheet" href="style.css?v=49">
 </head>
 <body>
     <div id="app">
@@ -113,6 +113,26 @@
             </div>
         </section>
 
+        <section class="screen" id="screen-mode-select">
+            <div class="card center">
+                <div class="topbar">
+                    <button type="button" id="btn-mode-back" class="icon-btn" aria-label="Tillbaka">✕</button>
+                    <h2 id="mode-select-title">Spel</h2>
+                </div>
+                <p class="subtitle">Hur vill du spela?</p>
+
+                <button type="button" id="btn-mode-friend" class="btn btn-primary">Spela mot en vän</button>
+
+                <p class="section-label">Spela mot AI</p>
+                <div class="ai-difficulty-row">
+                    <button type="button" class="btn btn-secondary ai-diff-btn" data-difficulty="easy">Lätt</button>
+                    <button type="button" class="btn btn-secondary ai-diff-btn" data-difficulty="medium">Medel</button>
+                    <button type="button" class="btn btn-secondary ai-diff-btn" data-difficulty="hard">Svår</button>
+                </div>
+                <p class="error-text" id="mode-select-error"></p>
+            </div>
+        </section>
+
         <section class="screen" id="screen-lobby">
             <div class="card center">
                 <h2>Rumskod</h2>
@@ -210,6 +230,6 @@
 
     <div id="app-version" class="app-version"></div>
 
-    <script type="module" src="js/main.js?v=48"></script>
+    <script type="module" src="js/main.js?v=49"></script>
 </body>
 </html>

@@ -50,7 +50,9 @@ backend. Inga byggverktyg krävs.
   fortsätta slå om den kan, UTOM om den precis krönts till dam — då
   stannar den). Motståndaren förlorar om denne helt saknar lagliga drag
   (inga brickor kvar ELLER blockerad) — inget forcerat oavgjort. Se
-  kommentaren högst upp i `js/games/checkers.js` för detaljer.
+  kommentaren högst upp i `js/games/checkers.js` för detaljer. Enda
+  spelet hittills som även går att spela mot AI (tre svårighetsgrader,
+  se "Spela mot AI" nedan).
 - **Go** (Baduk/Weiqi) — 9x9-bräde ("enkel" storlek), spelat på
   linjeskärningspunkter istället för i rutor (renderas därför helt av
   `js/games/go.js`, inte det generiska rutnätssystemet — en SVG för
@@ -121,7 +123,9 @@ nedan.
    vid varje besök — "byt profil" på hemskärmen för att välja en annan.
 2. Spelare 1 väljer direkt ett spel på hemskärmen — inget "skapa
    rum"-mellansteg, inget "bäst av"-val. Rummet skapas direkt och man
-   hamnar i en väntelobby med rumskoden synlig.
+   hamnar i en väntelobby med rumskoden synlig. För spel med AI-stöd
+   (se nedan) visas istället ett litet lägesval: mot en vän (som
+   vanligt) eller mot AI:n direkt.
 3. Spelare 2 ser DIREKT på sin egen hemskärm att t.ex. "Kristian
    startade Luffarschack", i en live-uppdaterad lista över öppna spel —
    och kan trycka **Gå med** där. Fungerar även utan att ha fått någon
@@ -136,6 +140,33 @@ nedan.
    vinnare loggas resultatet direkt till statistiken, men en NY rond
    startar först när BÅDA spelarna tryckt **Spela igen** — vem som
    helst kan istället lämna rummet när som helst.
+
+## Spela mot AI
+
+Vissa spel (hittills **Dam**) kan spelas mot en inbyggd AI-motståndare
+istället för mot en vän — inget rum, ingen Firebase inblandad alls: hela
+partiet körs lokalt i webbläsaren (se `startLocalGame`/`applyLocalAction`/
+`scheduleAiTurn` i `js/main.js`). AI:n exponeras av spelmodulen själv via
+en valfri `getAiMove(round, aiSymbol, difficulty)`-export (se
+`js/games/checkers.js`) och markeras med `meta.supportsAi = true` — det är
+det enda som krävs för att ett spel ska få lägesvalet "vän eller AI" på
+hemskärmen.
+
+Tre svårighetsgrader (`easy`/`medium`/`hard`):
+
+- **Lätt** — helt slumpmässigt bland lagliga drag (slagtvång gäller
+  fortfarande, det är en spelregel — men VILKET drag/slag är
+  slumpmässigt).
+- **Medel**/**Svår** — minimax med alpha-beta-beskärning och tidsbudget
+  (iterative deepening: djupet ökas tills en tidsgräns nås, ~250 ms
+  respektive ~700 ms per drag), så svarstiden är förutsägbar oavsett hur
+  komplex ställningen är. Återanvänder spelets EGNA `applyAction`/
+  legalitetsfunktioner för att simulera drag under sökningen istället för
+  att duplicera regellogiken — AI:n kan alltså aldrig råka "hitta på" ett
+  drag den riktiga motorn skulle underkänt.
+
+AI-partier loggas INTE till statistiken (den är till för matcher mellan
+riktiga profiler).
 
 ## Statistik/leaderboard
 
@@ -255,10 +286,17 @@ Sedan väljer spelet EN av två sätt att rendera brädet:
    (`ctx.sendAction`/`ctx.setSelectedCell`). Använd när spelet inte är
    ett enkelt rutnät (annan form, extra kontroller som tärningar/kub).
 
-Lägg sedan till modulen i `js/games/registry.js` och en knapp i
+Lägg sedan till modulen i `js/games/registry.js` och ett spelkort i
 `index.html` (`#start-game-picker` på hemskärmen, `data-game-id`
 matchar `meta.id`). Resten av appen (rum, matchning, poängräkning) är
 redan generiskt.
+
+Vill spelet även gå att spela mot AI (se "Spela mot AI" ovan): sätt
+`meta.supportsAi = true` och exportera `getAiMove(round, aiSymbol,
+difficulty)` (`difficulty` är `"easy"`/`"medium"`/`"hard"`) som
+returnerar en handling i samma format som `applyAction` förväntar sig.
+Allt annat (lägesvalsskärmen, det lokala AI-partiet i `js/main.js`)
+fungerar automatiskt för alla spel som exponerar den funktionen.
 
 ## Teknik i korthet
 
