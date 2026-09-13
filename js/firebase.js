@@ -87,3 +87,16 @@ export function registerPresence(code, playerId) {
     const playerRef = ref(db, paths.player(code, playerId));
     onDisconnect(playerRef).update({ connected: false });
 }
+
+// Städar bort rummets post i den öppna listan automatiskt om VÄRDEN
+// försvinner (stängd flik/app) INNAN någon hunnit gå med — annars blir
+// den kvar för evigt och visas som "väntar" åt alla, trots att ingen
+// längre är där (se createRoom i rooms.js). Ofarligt att registrera
+// villkorslöst: joinRoom/cancelWaitingRoom tar redan bort samma post så
+// fort rummet blir fullt eller avbryts, så en EFTERFÖLJANDE frånkoppling
+// (t.ex. värden lämnar mitt i ett pågående parti) bara försöker ta bort
+// en post som redan är borta — ett ofarligt no-op.
+export function registerOpenRoomCleanup(code) {
+    const openRoomRef = ref(db, paths.openRoom(code));
+    onDisconnect(openRoomRef).remove();
+}

@@ -25,7 +25,7 @@
 //   ingen "flygande dam" och inget forcerat oavgjort vid upprepning/
 //   för många drag utan slag.
 
-import { otherSymbolOf } from "./shared.js?v=53";
+import { otherSymbolOf } from "./shared.js?v=54";
 
 export const meta = {
     id: "checkers",

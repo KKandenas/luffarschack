@@ -20,7 +20,7 @@
 //   drag). Mer sällsynta, längre ko-cykler (t.ex. "trippel ko") stoppas
 //   inte, men är extremt ovanligt i vardagsspel.
 
-import { otherSymbolOf } from "./shared.js?v=53";
+import { otherSymbolOf } from "./shared.js?v=54";
 
 const SIZE = 9;
 const CELL_COUNT = SIZE * SIZE;

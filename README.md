@@ -436,11 +436,16 @@ skrivningen tyst.
   finns), men det betyder att vem som helst med appen öppen kan se och
   gå med i vilket väntande rum som helst, inte bara de man själv blivit
   inbjuden till.
-- Rum som blir övergivna UTAN att värden trycker "Avbryt" (t.ex. stängd
-  flik/app) städas inte bort — varken själva rummet eller dess post i
-  `openRooms/`, så de kan fortsätta synas som "väntar" i listan trots
-  att ingen längre är där. `statsLog` växer också obegränsat (litet
-  dataset för en hobbyapp, men inget städas bort automatiskt).
+- Ett rum som blir övergivet UTAN att värden trycker "Avbryt" (t.ex.
+  stängd flik/app) städas bort ur den öppna listan automatiskt —
+  `registerOpenRoomCleanup` i `firebase.js` sätter en `onDisconnect`
+  som tar bort `openRooms/`-posten om värden försvinner innan någon
+  hunnit gå med, precis som spelarnas "connected"-status redan gjorde
+  (se `registerPresence`). Själva `rooms/`-noden lämnas dock kvar
+  (overksam, syns aldrig i UI:t, men växer databasen något) — bara
+  posten i den SYNLIGA listan berörs. `statsLog` växer också
+  obegränsat (litet dataset för en hobbyapp, men inget städas bort
+  automatiskt).
 - Att gå med i ett rum är EN läsning + EN skrivning, ingen transaktion
   (se kommentaren i `rooms.js` joinRoom) — om två spelare skulle trycka
   "Gå med" på exakt samma rum i exakt samma millisekund kan den sista

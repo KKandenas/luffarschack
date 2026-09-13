@@ -12,8 +12,8 @@
 // innan en ny rond startar (round.readyForNext) — se finishRound/
 // markReadyForNext nedan.
 
-import { paths, dbGet, dbSet, dbRemove, dbTransact, dbListen, dbPush, registerPresence } from "./firebase.js?v=53";
-import { getGame, DEFAULT_GAME_ID } from "./games/registry.js?v=53";
+import { paths, dbGet, dbSet, dbRemove, dbTransact, dbListen, dbPush, registerPresence, registerOpenRoomCleanup } from "./firebase.js?v=54";
+import { getGame, DEFAULT_GAME_ID } from "./games/registry.js?v=54";
 
 // Spel kan lägga till egna initiala fält på runde-nivå (t.ex. backgammons
 // dubbleringstärning) via en valfri game.initialRoundState()-hook.
@@ -104,6 +104,7 @@ export async function createRoom(gameId, profile) {
     });
     storePlayerId(code, playerId);
     registerPresence(code, playerId);
+    registerOpenRoomCleanup(code);
     return { code, playerId, room };
 }
 

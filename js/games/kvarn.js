@@ -32,7 +32,7 @@
 // relevant efter att denne placerat klart, se isFinishedPlacing), eller
 // är helt blockerad (inget lagligt drag) i flytt-/flygfasen.
 
-import { otherSymbolOf } from "./shared.js?v=53";
+import { otherSymbolOf } from "./shared.js?v=54";
 
 export const meta = {
     id: "kvarn",
