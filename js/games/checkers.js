@@ -25,13 +25,14 @@
 //   ingen "flygande dam" och inget forcerat oavgjort vid upprepning/
 //   för många drag utan slag.
 
-import { otherSymbolOf } from "./shared.js?v=48";
+import { otherSymbolOf } from "./shared.js?v=49";
 
 export const meta = {
     id: "checkers",
     label: "Dam",
     description: "Klassisk 8x8-dam — slagtvång och flerslag, damer flyttar ett steg åt valfritt håll.",
     boardClass: "board--checkers",
+    supportsAi: true,
     rules: [
         "Vanliga brickor flyttar ett steg diagonalt framåt till en tom ruta.",
         "Kan du slå (hoppa över) en av motståndarens brickor MÅSTE du göra det. En vanlig bricka får slå åt alla fyra håll, även bakåt — det är bara vanlig flyttning utan slag som måste vara framåt.",
@@ -199,6 +200,148 @@ export function applyAction(round, action, playerId, mySymbol, otherPlayerId) {
         winLine: null,
         lastMove: { cells: [from, to] },
     };
+}
+
+// ============================================================
+// AI-motstånd — tre svårighetsgrader.
+// Återanvänder samma applyAction/legalitetsfunktioner som den riktiga
+// spelmotorn (via en "scratch"-rond där turn/playerId/symbol är samma
+// sträng) istället för att duplicera regellogiken — så AI:n kan aldrig
+// råka spela ett drag den riktiga motorn skulle underkänt.
+// ============================================================
+
+function shuffled(list) {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+// Alla lagliga drag för `symbol` i den aktuella ställningen — samma
+// slagtvångs-/fortsätt-slå-logik som applyAction, men bara för att LISTA
+// dragen istället för att utföra ett.
+function listLegalActions(round, symbol) {
+    const board = round.board;
+    const lockedFrom = round.mustContinueFrom != null ? round.mustContinueFrom : null;
+    const mandatory = lockedFrom !== null || anyCaptureAvailable(board, symbol);
+    const pieceIndices = lockedFrom !== null
+        ? [lockedFrom]
+        : Object.keys(board).filter((k) => board[k].symbol === symbol).map(Number);
+
+    const actions = [];
+    for (const from of pieceIndices) {
+        const captures = legalCapturesForPiece(board, from);
+        if (captures.length > 0) {
+            for (const c of captures) actions.push({ type: "move", from, to: c.to });
+        } else if (!mandatory) {
+            for (const to of legalSimpleMovesForPiece(board, from)) actions.push({ type: "move", from, to });
+        }
+    }
+    return actions;
+}
+
+// Simulerar ett drag med `applyAction` genom att låta symbolen själv vara
+// "playerId" — applyAction bryr sig bara om att playerId matchar
+// round.turn och används som nästa spelares identitet, så det fungerar
+// utmärkt även utanför den riktiga rum-kontexten.
+function simulateAction(round, action, symbol) {
+    return applyAction(round, action, symbol, symbol, otherSymbolOf(symbol));
+}
+
+function evaluateBoard(board, aiSymbol) {
+    let score = 0;
+    for (const key in board) {
+        const piece = board[key];
+        const row = Math.floor(Number(key) / SIZE);
+        const col = Number(key) % SIZE;
+        let value = piece.king ? 1.75 : 1;
+        if (!piece.king) {
+            const advancement = piece.symbol === "X" ? row : (SIZE - 1 - row);
+            value += advancement * 0.03;
+        }
+        value += (3.5 - Math.abs(col - 3.5)) * 0.01;
+        score += piece.symbol === aiSymbol ? value : -value;
+    }
+    return score;
+}
+
+// Minimax med alpha-beta-beskärning. Ett "djup" är en enskild handling
+// (move), inte ett helt drag mellan spelarbyten — en tvingad slagsvit
+// (mustContinueFrom) räknas alltså som flera djup i rad för samma sida,
+// precis som i den riktiga spelmotorn.
+function minimax(round, aiSymbol, depth, alpha, beta, deadline) {
+    if (round.winner) {
+        if (round.winner === aiSymbol) return 500 + depth;
+        return -500 - depth;
+    }
+    if (depth <= 0 || Date.now() > deadline) {
+        return evaluateBoard(round.board, aiSymbol);
+    }
+
+    const toMove = round.turn;
+    const maximizing = toMove === aiSymbol;
+    const actions = shuffled(listLegalActions(round, toMove));
+    if (actions.length === 0) return maximizing ? -500 - depth : 500 + depth;
+
+    let best = maximizing ? -Infinity : Infinity;
+    for (const action of actions) {
+        const nextRound = simulateAction(round, action, toMove);
+        const score = minimax(nextRound, aiSymbol, depth - 1, alpha, beta, deadline);
+        if (maximizing) {
+            best = Math.max(best, score);
+            alpha = Math.max(alpha, best);
+        } else {
+            best = Math.min(best, score);
+            beta = Math.min(beta, best);
+        }
+        if (beta <= alpha) break;
+        if (Date.now() > deadline) break;
+    }
+    return best;
+}
+
+const AI_BUDGET_MS = { medium: 250, hard: 700 };
+const AI_MAX_DEPTH = { medium: 6, hard: 10 };
+
+// Returnerar en handling ({ type: "move", from, to }) åt AI:n, eller
+// `null` om den (mot förmodan — motorn ska redan ha satt round.winner då)
+// saknar lagliga drag.
+export function getAiMove(round, aiSymbol, difficulty) {
+    const scratchRound = {
+        board: round.board,
+        turn: aiSymbol,
+        mustContinueFrom: round.mustContinueFrom,
+        winner: null,
+    };
+    const actions = shuffled(listLegalActions(scratchRound, aiSymbol));
+    if (actions.length === 0) return null;
+    if (difficulty === "easy") return actions[0];
+
+    const deadline = Date.now() + (AI_BUDGET_MS[difficulty] || AI_BUDGET_MS.medium);
+    const maxDepth = AI_MAX_DEPTH[difficulty] || AI_MAX_DEPTH.medium;
+
+    let best = actions[0];
+    for (let depth = 2; depth <= maxDepth; depth++) {
+        if (Date.now() > deadline) break;
+        let alpha = -Infinity;
+        let roundBest = null;
+        let roundBestScore = -Infinity;
+        for (const action of actions) {
+            const nextRound = simulateAction(scratchRound, action, aiSymbol);
+            const score = minimax(nextRound, aiSymbol, depth - 1, alpha, Infinity, deadline);
+            if (score > roundBestScore) {
+                roundBestScore = score;
+                roundBest = action;
+            }
+            alpha = Math.max(alpha, roundBestScore);
+        }
+        if (roundBest && Date.now() <= deadline) {
+            best = roundBest;
+        }
+    }
+    return best;
 }
 
 export function statusText({ round, myTurn, mySymbol }) {

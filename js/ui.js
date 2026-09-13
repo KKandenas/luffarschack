@@ -4,12 +4,13 @@
 // här filen. Vet ingenting om enskilda spels regler — allt sådant kommer
 // från den aktuella spelmodulen (js/games/registry.js) via room.gameId.
 
-import { boardToCells } from "./games/shared.js?v=48";
-import { getGame, GAME_LIST } from "./games/registry.js?v=48";
+import { boardToCells } from "./games/shared.js?v=49";
+import { getGame, GAME_LIST } from "./games/registry.js?v=49";
 
 const screens = {
     profile: document.getElementById("screen-profile"),
     home: document.getElementById("screen-home"),
+    modeSelect: document.getElementById("screen-mode-select"),
     lobby: document.getElementById("screen-lobby"),
     game: document.getElementById("screen-game"),
     stats: document.getElementById("screen-stats"),
@@ -19,7 +20,7 @@ const screens = {
 // Bakgrundsbilden (hundarna) visas bara på "startsidorna" — där man
 // väljer profil, spel eller tittar på statistik — inte i lobbyn eller
 // mitt i ett parti där uppmärksamheten ska vara på spelet.
-const START_SCREENS = new Set(["profile", "home", "stats"]);
+const START_SCREENS = new Set(["profile", "home", "modeSelect", "stats"]);
 
 export function showScreen(name) {
     for (const key in screens) {

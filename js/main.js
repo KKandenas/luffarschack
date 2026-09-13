@@ -5,18 +5,18 @@
 import {
     createRoom, joinRoom, makeMove, finishRound, markReadyForNext,
     cancelWaitingRoom, listenToOpenRooms,
-    forgetRoom, listenToRoom, normalizeCode,
-} from "./rooms.js?v=48";
+    forgetRoom, listenToRoom, normalizeCode, createRound,
+} from "./rooms.js?v=49";
 import {
     showScreen, renderLobby, renderGame, setError,
     renderProfileList, filterProfiles, setCurrentProfileLabel, populateStatsFilters, renderStatsResults, renderOpenRooms,
     populateRulesGamePicker, renderRulesContent,
-} from "./ui.js?v=48";
-import { getGame, DEFAULT_GAME_ID } from "./games/registry.js?v=48";
+} from "./ui.js?v=49";
+import { getGame, DEFAULT_GAME_ID } from "./games/registry.js?v=49";
 import {
     listProfiles, getOrCreateProfileByName, getStoredProfile, storeProfile, clearStoredProfile, fetchStatsLog,
-} from "./profiles.js?v=48";
-import { filterEntries, buildLeaderboard, buildHeadToHead } from "./stats.js?v=48";
+} from "./profiles.js?v=49";
+import { filterEntries, buildLeaderboard, buildHeadToHead } from "./stats.js?v=49";
 
 // Bumpas manuellt vid varje push så det syns i appen (längst ner) vilken
 // version en telefon faktiskt kör — bra för att felsöka cache-problem.
@@ -25,7 +25,7 @@ import { filterEntries, buildLeaderboard, buildHeadToHead } from "./stats.js?v=4
 // i index.html, annars riskerar olika filer att cachas separat och hamna
 // i otakt — vilket var precis orsaken till att "rummet hittades inte"
 // kvarstod trots att fixen redan var pushad.
-export const APP_VERSION = "build 48 · 2026-08-08";
+export const APP_VERSION = "build 49 · 2026-08-08";
 
 let currentCode = null;
 let myPlayerId = null;
@@ -47,6 +47,16 @@ let lastRoom = null;
 let selectedCell = null;
 let lastTurnKey = null;
 
+// --- Lokalt AI-parti ---
+// Ett parti mot AI:n har inget rum/Firebase alls: `lastRoom` är ett
+// lokalt konstruerat rum-liknande objekt ("me"/"ai" som spelar-id:n) och
+// varje drag körs direkt genom spelmodulens applyAction i webbläsaren.
+// Återanvänder samma renderGame/renderBoard som multiplayer-läget rakt
+// av — de vet inget om VARIFRÅN round/room kommer.
+let isLocalGame = false;
+let aiDifficulty = null;
+const AI_NAMES = { easy: "AI (Lätt)", medium: "AI (Medel)", hard: "AI (Svår)" };
+
 // Delas med spel som renderar sitt eget bräde (game.renderBoard) — de
 // bygger och binder klickhanterare direkt vid rendering istället för att
 // gå via den delegerade #board-lyssnaren längre ner.
@@ -56,6 +66,7 @@ function setSelectedCell(cell) {
 }
 
 function sendAction(action) {
+    if (isLocalGame) { applyLocalAction(action); return; }
     if (!currentCode || !myPlayerId) return;
     makeMove(currentCode, action, myPlayerId).catch(() => { /* ogiltig handling, ignorera */ });
 }
@@ -71,6 +82,87 @@ function leaveRoomState() {
     if (currentCode) forgetRoom(currentCode);
     currentCode = null;
     myPlayerId = null;
+    isLocalGame = false;
+    aiDifficulty = null;
+}
+
+// AI:ns drag körs med en liten fördröjning (känns som att den "tänker"
+// istället för att svara ryckigt/direkt) — och schemaläggs om sig själv
+// om resultatet är en tvingad fortsatt slagsvit (round.turn förblir "ai").
+function scheduleAiTurn() {
+    if (!isLocalGame || !lastRoom?.round || lastRoom.round.winner) return;
+    if (lastRoom.round.turn !== "ai") return;
+    const game = getGame(lastRoom.gameId);
+    if (typeof game.getAiMove !== "function") return;
+    setTimeout(() => {
+        if (!isLocalGame || !lastRoom?.round || lastRoom.round.winner || lastRoom.round.turn !== "ai") return;
+        const action = game.getAiMove(lastRoom.round, "O", aiDifficulty);
+        if (!action) return;
+        const updatedRound = game.applyAction(lastRoom.round, action, "ai", "O", "me");
+        applyLocalRoundUpdate(updatedRound);
+    }, 450);
+}
+
+// Poängsätter direkt (inget kapplöpningsläge att skydda mot lokalt, till
+// skillnad från finishRound i rooms.js) och renderar om innan AI:ns
+// eventuella nästa drag schemaläggs.
+function applyLocalRoundUpdate(updatedRound) {
+    lastRoom = { ...lastRoom, round: updatedRound };
+    if (updatedRound.winner && !updatedRound.scored) {
+        if (updatedRound.winner !== "draw") {
+            const winnerId = lastRoom.players.me.symbol === updatedRound.winner ? "me" : "ai";
+            lastRoom.score = { ...lastRoom.score, [winnerId]: (lastRoom.score[winnerId] || 0) + (updatedRound.pointValue || 1) };
+        }
+        lastRoom.round = { ...lastRoom.round, scored: true };
+    }
+    const turnKey = `${updatedRound.roundNumber}:${updatedRound.turn}:${Object.keys(updatedRound.board || {}).length}`;
+    if (turnKey !== lastTurnKey) { selectedCell = null; lastTurnKey = turnKey; }
+    renderGame(lastRoom, "me", selectedCell, gameCallbacks);
+    scheduleAiTurn();
+}
+
+function applyLocalAction(action) {
+    if (!lastRoom?.round || lastRoom.round.winner) return;
+    if (lastRoom.round.turn !== "me") return;
+    const game = getGame(lastRoom.gameId);
+    const updatedRound = game.applyAction(lastRoom.round, action, "me", "X", "ai");
+    if (updatedRound === lastRoom.round) return; // ogiltig handling, ignorera
+    applyLocalRoundUpdate(updatedRound);
+}
+
+function startLocalGame(gameId, difficulty) {
+    isLocalGame = true;
+    aiDifficulty = difficulty;
+    currentCode = null;
+    myPlayerId = "me";
+    finishedRoundKey = null;
+    selectedCell = null;
+    lastTurnKey = null;
+    lastRoom = {
+        gameId,
+        hostId: "me",
+        status: "playing",
+        players: {
+            me: { symbol: "X", profileId: myProfile?.id, name: myProfile?.name || "Du", connected: true },
+            ai: { symbol: "O", name: AI_NAMES[difficulty] || "AI", connected: true },
+        },
+        score: { me: 0, ai: 0 },
+        round: createRound(gameId, 1, "me"),
+    };
+    showScreen("game");
+    renderGame(lastRoom, "me", selectedCell, gameCallbacks);
+    scheduleAiTurn();
+}
+
+function startNextLocalRound() {
+    if (!lastRoom) return;
+    const prevRound = lastRoom.round;
+    const nextStarter = prevRound.startingPlayer === "me" ? "ai" : "me";
+    selectedCell = null;
+    lastTurnKey = null;
+    lastRoom = { ...lastRoom, round: createRound(lastRoom.gameId, prevRound.roundNumber + 1, nextStarter) };
+    renderGame(lastRoom, "me", selectedCell, gameCallbacks);
+    scheduleAiTurn();
 }
 
 function subscribe(code) {
@@ -203,22 +295,57 @@ async function onJoinOpenRoom(code) {
 }
 
 // --- Starta ett spel direkt (inget "skapa rum"-mellansteg) ---
+// Spel med AI-stöd (game.meta.supportsAi) visar först ett litet
+// lägesval (vän/AI) istället för att direkt skapa ett rum.
+async function startOnlineRoom(gameId, btn, errorScreen = "home") {
+    setError(errorScreen, "");
+    if (btn) btn.disabled = true;
+    try {
+        const { code, playerId } = await createRoom(gameId, myProfile);
+        currentCode = code;
+        myPlayerId = playerId;
+        subscribe(code);
+        showScreen("lobby");
+        setupLobbyLinks(code);
+    } catch (err) {
+        setError(errorScreen, err.message || "Kunde inte skapa rummet. Försök igen.");
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
 document.querySelectorAll('#start-game-picker button[data-game-id]').forEach((btn) => {
-    btn.addEventListener("click", async () => {
-        setError("home", "");
-        btn.disabled = true;
-        try {
-            const { code, playerId } = await createRoom(btn.dataset.gameId, myProfile);
-            currentCode = code;
-            myPlayerId = playerId;
-            subscribe(code);
-            showScreen("lobby");
-            setupLobbyLinks(code);
-        } catch (err) {
-            setError("home", err.message || "Kunde inte skapa rummet. Försök igen.");
-        } finally {
-            btn.disabled = false;
+    btn.addEventListener("click", () => {
+        const gameId = btn.dataset.gameId;
+        if (getGame(gameId).meta.supportsAi) {
+            openModeSelect(gameId);
+        } else {
+            startOnlineRoom(gameId, btn);
         }
+    });
+});
+
+// --- Lägesval: spela mot en vän (rumskod) eller mot AI ---
+let modeSelectGameId = null;
+
+function openModeSelect(gameId) {
+    modeSelectGameId = gameId;
+    document.getElementById("mode-select-title").textContent = getGame(gameId).meta.label;
+    setError("mode-select", "");
+    showScreen("modeSelect");
+}
+
+document.getElementById("btn-mode-back").addEventListener("click", () => showScreen("home"));
+
+document.getElementById("btn-mode-friend").addEventListener("click", (e) => {
+    if (!modeSelectGameId) return;
+    startOnlineRoom(modeSelectGameId, e.currentTarget, "mode-select");
+});
+
+document.querySelectorAll("#screen-mode-select .ai-diff-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+        if (!modeSelectGameId) return;
+        startLocalGame(modeSelectGameId, btn.dataset.difficulty);
     });
 });
 
@@ -300,7 +427,7 @@ document.getElementById("btn-lobby-cancel").addEventListener("click", () => {
 // enkelt rutnät) binder sina egna klickhanterare direkt vid rendering
 // (se gameCallbacks ovan) och hanteras INTE av den här delegeringen.
 document.getElementById("board").addEventListener("click", (e) => {
-    if (!currentCode || !myPlayerId || !lastRoom?.round) return;
+    if (!myPlayerId || !lastRoom?.round) return;
     const game = getGame(lastRoom.gameId);
     if (typeof game.renderBoard === "function") return;
 
@@ -333,6 +460,7 @@ document.getElementById("btn-leave-game").addEventListener("click", () => {
 // Ny rond kräver att BÅDA spelarna trycker "Spela igen" efter en
 // avslutad rond (se rooms.js markReadyForNext + ui.js renderGame).
 document.getElementById("btn-play-again").addEventListener("click", (e) => {
+    if (isLocalGame) { startNextLocalRound(); return; }
     if (!currentCode || !myPlayerId) return;
     e.target.disabled = true;
     markReadyForNext(currentCode, myPlayerId).catch(() => {
