@@ -19,13 +19,14 @@
 // (bar, slå ut, hem-bärning exakt/övertal, dubbleringstärning,
 // gammon/backgammon) följer de riktiga reglerna.
 
-import { otherSymbolOf } from "./shared.js?v=52";
+import { otherSymbolOf } from "./shared.js?v=53";
 
 export const meta = {
     id: "backgammon",
     label: "Backgammon",
     description: "Klassiskt tärningsspel med dubbleringstärning och gammon-poäng.",
     boardClass: "board--backgammon",
+    supportsAi: true,
     rules: [
         "Flytta dina 15 brickor runt brädet och bär av dem alla först för att vinna.",
         "Slå tärningarna varje tur — du får flytta enligt båda värdena (samma bricka två gånger eller två olika brickor), eller fyra gånger samma värde om du slår par.",
@@ -335,6 +336,151 @@ export function statusText({ round, myTurn }) {
     if (!myTurn) return round.dice ? "Motståndarens tur — flyttar…" : "Motståndarens tur — slår tärning…";
     if (!round.dice) return "Din tur — slå tärningen";
     return "Din tur — flytta enligt tärningarna";
+}
+
+// ============================================================
+// AI-motstånd — till skillnad från de andra spelens AI (som söker över
+// FLERA framtida drag/spelarbyten) behöver backgammon bara söka igenom
+// EN enda turs kvarvarande tärningsvärden: motståndaren agerar aldrig
+// mitt i min tur, så det är ett rent optimeringsproblem (välj bästa
+// sättet att ANVÄNDA tärningarna), inte en tvåspelar-minimax. Sökningen
+// provar varje sätt att kombinera kvarvarande tärningar (som applyAction
+// redan tillåter — se filkommentaren högst upp om att appen inte kräver
+// det TEORETISKT mest optimala tärningsutnyttjandet) och utvärderar den
+// FÄRDIGA turens slutställning, inte varje delsteg för sig — annars
+// skulle AI:n bara vara girig steg för steg istället för att planera
+// hela turen.
+//
+// getAiMove tar emot en fjärde parameter `aiPlayerId` (utöver de andra
+// spelens aiSymbol/difficulty) — till skillnad från de andra spelen
+// lagras dubbleringstärningens ägare/erbjudare som riktiga playerId:n i
+// round (cubeOwner/doubleOfferedBy), inte som symboler, så AI:n behöver
+// veta sitt EGET playerId (alltid "ai" i ett lokalt AI-parti, se
+// scheduleAiTurn i js/main.js) för att tolka de fälten korrekt.
+// ============================================================
+
+function shuffled(list) {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+function listLegalMovesForDice(board, symbol, dicePool) {
+    const uniqueDice = [...new Set(dicePool || [])];
+    const sources = movableSources(board, symbol);
+    const moves = [];
+    for (const from of sources) {
+        for (const d of uniqueDice) {
+            const info = moveInfo(board, symbol, from, d);
+            if (info.legal) moves.push({ from, to: info.to, die: d });
+        }
+    }
+    return moves;
+}
+
+// Räknar en spelares "pip count" (summan av hur många steg alla dess
+// brickor har kvar till hem-bärning) — standardmåttet för hur nära ett
+// kapplöpningsläge man är, används här för dubbleringstärningens
+// erbjud-/acceptera-heuristik. En bricka på bar räknas konventionellt
+// som 25 steg bort (värsta tänkbara punkt + hela vägen runt).
+function pipCount(board, symbol) {
+    let total = (board.bar[symbol] || 0) * 25;
+    for (const key in board.points) {
+        const p = board.points[key];
+        if (p.symbol !== symbol) continue;
+        total += pipsToBearOff(symbol, Number(key)) * p.count;
+    }
+    return total;
+}
+
+// Grundutvärdering (används av "medel"): lägre eget pip count än
+// motståndarens är bra, en egen bricka ensam på en punkt ("bloss") är
+// en sårbarhet, en bricka på bar är dåligt, avburna brickor är bra.
+function evaluateBoardMedium(board, symbol) {
+    const oppSymbol = otherSymbolOf(symbol);
+    let score = pipCount(board, oppSymbol) - pipCount(board, symbol);
+    for (const key in board.points) {
+        const p = board.points[key];
+        if (p.count !== 1) continue;
+        score += p.symbol === symbol ? -2 : 1;
+    }
+    score -= (board.bar[symbol] || 0) * 5;
+    score += (board.bar[oppSymbol] || 0) * 3;
+    score += (board.off[symbol] || 0) * 2;
+    return score;
+}
+
+// "Svår" lägger till värdet av GJORDA punkter (2+ egna brickor) —
+// särskilt i hemmaplan där de blockerar motståndarens inbyte från bar —
+// så AI:n aktivt bygger en stark position istället för att bara jaga
+// lägst pip count.
+function evaluateBoardHard(board, symbol) {
+    let score = evaluateBoardMedium(board, symbol);
+    for (const key in board.points) {
+        const p = board.points[key];
+        if (p.symbol !== symbol || p.count < 2) continue;
+        score += isHomeIndex(symbol, Number(key)) ? 3 : 1;
+    }
+    return score;
+}
+
+// Söker igenom ALLA sätt att använda de kvarvarande tärningarna i den
+// HÄR turen (inget motståndardrag att ta hänsyn till mitt i) och
+// returnerar det FÖRSTA draget på vägen till den bäst utvärderade
+// slutställningen för hela turen.
+function searchTurn(board, symbol, dicePool, evalFn) {
+    const moves = listLegalMovesForDice(board, symbol, dicePool);
+    if (moves.length === 0) return { move: null, score: evalFn(board, symbol) };
+    let best = null;
+    for (const mv of shuffled(moves)) {
+        const nextBoard = applyMoveToBoard(board, symbol, mv.from, mv.to);
+        const remainingDice = removeOne(dicePool, mv.die);
+        const sub = searchTurn(nextBoard, symbol, remainingDice, evalFn);
+        if (!best || sub.score > best.score) best = { move: mv, score: sub.score };
+    }
+    return best;
+}
+
+const DOUBLE_OFFER_PIP_LEAD = 8; // erbjud dubbling när jag leder med minst så många pip
+const DOUBLE_DECLINE_PIP_DEFICIT = 25; // avböj en dubbling när jag ligger så här långt efter
+
+export function getAiMove(round, aiSymbol, difficulty, aiPlayerId) {
+    const board = round.board;
+    const oppSymbol = otherSymbolOf(aiSymbol);
+
+    // En dubbling väntar alltid på OSS här (scheduleAiTurn anropar bara
+    // getAiMove när round.turn faktiskt är vårt — och en dubbling ger
+    // draget till MOTSTÅNDAREN som erbjöd den, se applyAction "double").
+    if (round.pendingDouble) {
+        if (difficulty === "easy") return { type: "acceptDouble" };
+        const deficit = pipCount(board, aiSymbol) - pipCount(board, oppSymbol);
+        return deficit >= DOUBLE_DECLINE_PIP_DEFICIT ? { type: "declineDouble" } : { type: "acceptDouble" };
+    }
+
+    if (!round.dice) {
+        if (difficulty !== "easy") {
+            const canDouble = !round.cubeOwner || round.cubeOwner === aiPlayerId;
+            if (canDouble && pipCount(board, oppSymbol) - pipCount(board, aiSymbol) >= DOUBLE_OFFER_PIP_LEAD) {
+                return { type: "double" };
+            }
+        }
+        return { type: "roll" };
+    }
+
+    if (difficulty === "easy") {
+        const moves = listLegalMovesForDice(board, aiSymbol, round.dice);
+        if (moves.length === 0) return null; // ska inte kunna hända — applyAction("roll") går redan vidare om inget lagligt drag finns
+        const mv = shuffled(moves)[0];
+        return { type: "move", from: mv.from, to: mv.to };
+    }
+
+    const evalFn = difficulty === "hard" ? evaluateBoardHard : evaluateBoardMedium;
+    const best = searchTurn(board, aiSymbol, round.dice, evalFn);
+    if (!best?.move) return null;
+    return { type: "move", from: best.move.from, to: best.move.to };
 }
 
 // ============================================================
