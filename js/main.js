@@ -6,17 +6,17 @@ import {
     createRoom, joinRoom, makeMove, finishRound, markReadyForNext,
     cancelWaitingRoom, listenToOpenRooms,
     forgetRoom, listenToRoom, normalizeCode, createRound,
-} from "./rooms.js?v=52";
+} from "./rooms.js?v=53";
 import {
     showScreen, renderLobby, renderGame, setError,
     renderProfileList, filterProfiles, setCurrentProfileLabel, populateStatsFilters, renderStatsResults, renderOpenRooms,
     populateRulesGamePicker, renderRulesContent,
-} from "./ui.js?v=52";
-import { getGame, DEFAULT_GAME_ID } from "./games/registry.js?v=52";
+} from "./ui.js?v=53";
+import { getGame, DEFAULT_GAME_ID } from "./games/registry.js?v=53";
 import {
     listProfiles, getOrCreateProfileByName, getStoredProfile, storeProfile, clearStoredProfile, fetchStatsLog,
-} from "./profiles.js?v=52";
-import { filterEntries, buildLeaderboard, buildHeadToHead } from "./stats.js?v=52";
+} from "./profiles.js?v=53";
+import { filterEntries, buildLeaderboard, buildHeadToHead } from "./stats.js?v=53";
 
 // Bumpas manuellt vid varje push så det syns i appen (längst ner) vilken
 // version en telefon faktiskt kör — bra för att felsöka cache-problem.
@@ -25,7 +25,7 @@ import { filterEntries, buildLeaderboard, buildHeadToHead } from "./stats.js?v=5
 // i index.html, annars riskerar olika filer att cachas separat och hamna
 // i otakt — vilket var precis orsaken till att "rummet hittades inte"
 // kvarstod trots att fixen redan var pushad.
-export const APP_VERSION = "build 52 · 2026-08-08";
+export const APP_VERSION = "build 53 · 2026-08-08";
 
 let currentCode = null;
 let myPlayerId = null;
@@ -96,7 +96,7 @@ function scheduleAiTurn() {
     if (typeof game.getAiMove !== "function") return;
     setTimeout(() => {
         if (!isLocalGame || !lastRoom?.round || lastRoom.round.winner || lastRoom.round.turn !== "ai") return;
-        const action = game.getAiMove(lastRoom.round, "O", aiDifficulty);
+        const action = game.getAiMove(lastRoom.round, "O", aiDifficulty, "ai");
         if (!action) return;
         const updatedRound = game.applyAction(lastRoom.round, action, "ai", "O", "me");
         applyLocalRoundUpdate(updatedRound);

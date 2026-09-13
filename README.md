@@ -26,7 +26,8 @@ backend. Inga byggverktyg krävs.
   poäng)" i statusraden). En medveten förenkling: appen kräver inte att
   man spelar tärningarna i den ordning som maximerar hur många som går
   att använda när läget är delvis blockerat — se kommentaren högst upp
-  i `js/games/backgammon.js` för detaljer.
+  i `js/games/backgammon.js` för detaljer. Går även att spela mot AI
+  (inklusive dubbleringstärningen — se "Spela mot AI" nedan).
 - **Sänka skepp** — klassiska reglerna på ett 10x10-hav med fem skepp
   (Hangarfartyg 5, Slagskepp 4, Kryssare 3, Ubåt 3, Jagare 2), renderade
   som riktiga skeppsbilder (`assets/ships/*.png`) istället för gråa
@@ -147,19 +148,22 @@ nedan.
 
 ## Spela mot AI
 
-Vissa spel (hittills **Dam**, **Kvarn**, **Othello** och **Go**) kan
-spelas mot en inbyggd AI-motståndare istället för mot en vän — inget
-rum, ingen Firebase inblandad alls: hela partiet körs lokalt i
-webbläsaren (se `startLocalGame`/`applyLocalAction`/`scheduleAiTurn` i
-`js/main.js`). AI:n exponeras av spelmodulen själv via en valfri
-`getAiMove(round, aiSymbol, difficulty)`-export (se
-`js/games/checkers.js`/`js/games/kvarn.js`/`js/games/othello.js`/
-`js/games/go.js`) och markeras med `meta.supportsAi = true` — det är
-det enda som krävs för att ett spel ska få lägesvalet "vän eller AI" på
-hemskärmen. Othello är dessutom det första AI-stödjande spelet som
-använder det generiska rutnätssystemet (inte ett eget `renderBoard`) —
-samma delegerade klick-lyssnare på `#board` fungerar rakt av för lokala
-AI-partier också.
+Vissa spel (hittills **Dam**, **Kvarn**, **Othello**, **Go** och
+**Backgammon**) kan spelas mot en inbyggd AI-motståndare istället för
+mot en vän — inget rum, ingen Firebase inblandad alls: hela partiet
+körs lokalt i webbläsaren (se
+`startLocalGame`/`applyLocalAction`/`scheduleAiTurn` i `js/main.js`).
+AI:n exponeras av spelmodulen själv via en valfri `getAiMove(round,
+aiSymbol, difficulty, aiPlayerId)`-export (se `js/games/checkers.js`/
+`js/games/kvarn.js`/`js/games/othello.js`/`js/games/go.js`/
+`js/games/backgammon.js`) och markeras med `meta.supportsAi = true` —
+det är det enda som krävs för att ett spel ska få lägesvalet "vän eller
+AI" på hemskärmen. Den fjärde parametern (`aiPlayerId`, alltid `"ai"` i
+ett lokalt AI-parti) är valfri — bara Backgammon använder den (se
+nedan), övriga spel ignorerar den. Othello är dessutom det första
+AI-stödjande spelet som använder det generiska rutnätssystemet (inte
+ett eget `renderBoard`) — samma delegerade klick-lyssnare på `#board`
+fungerar rakt av för lokala AI-partier också.
 
 Tre svårighetsgrader (`easy`/`medium`/`hard`):
 
@@ -184,6 +188,23 @@ utvärderingsfunktion. AI:n passar självmant när inget kvarvarande drag
 längre förbättrar ställningen (annars skulle den aldrig självmant avsluta
 ronden) — men bara sent i partiet (få lediga lagliga punkter kvar), för
 poängen säger nästan ingenting förrän gränserna faktiskt är dragna.
+
+**Backgammon är också ett specialfall** (`js/games/backgammon.js`), men
+av ett annat skäl: en tur består av UPP TILL 4 delflyttar (en per
+tärningsvärde) utan att motståndaren agerar mitt i, så det är ett rent
+optimeringsproblem — inte en tvåspelar-minimax som de andra spelen. AI:n
+söker uttömmande igenom ALLA sätt att kombinera den AKTUELLA turens
+kvarvarande tärningar (branschfaktorn är liten nog, ≤4 tärningar djupt,
+för att aldrig behöva en tidsbudget) och väljer den kombination som ger
+bäst slutställning enligt en pip-count-baserad utvärdering (medel) eller
+samma plus bonus för gjorda punkter/blockering (svår). Samma
+`getAiMove`-anrop hanterar också dubbleringstärningen: erbjuder en
+dubbling vid tillräckligt pip-övertag, accepterar/avböjer baserat på
+samma mått vid en mottagen dubbling (`easy` rör aldrig kuben och
+accepterar alltid). Detta är varför `getAiMove` här behöver
+`aiPlayerId` utöver `aiSymbol` — kubens ägare/erbjudare lagras i round
+som riktiga spelar-id:n (`"me"`/`"ai"` i ett lokalt parti), inte som
+symboler, till skillnad från alla andra fält i de övriga spelens rondar.
 
 AI-partier loggas INTE till statistiken (den är till för matcher mellan
 riktiga profiler).
@@ -268,7 +289,7 @@ eller Pythons inbyggda server:
         shared.js            Hjälpfunktioner gemensamma för alla spel
         tictactoe.js         Luffarschack: regler + UI-hooks (rutnätsbräde)
         othello.js           Othello: regler + UI-hooks (rutnätsbräde) + AI
-        backgammon.js         Backgammon: regler + eget bräde (renderBoard)
+        backgammon.js         Backgammon: regler + eget bräde (renderBoard) + AI
         battleship.js          Sänka skepp: regler + eget bräde (placering + strid, renderBoard)
         connectfour.js         4 i rad: regler + UI-hooks (rutnätsbräde, klick i kolumn -> droppar)
         checkers.js             Dam: regler + eget bräde (renderBoard) + AI
@@ -313,10 +334,13 @@ redan generiskt.
 
 Vill spelet även gå att spela mot AI (se "Spela mot AI" ovan): sätt
 `meta.supportsAi = true` och exportera `getAiMove(round, aiSymbol,
-difficulty)` (`difficulty` är `"easy"`/`"medium"`/`"hard"`) som
-returnerar en handling i samma format som `applyAction` förväntar sig.
-Allt annat (lägesvalsskärmen, det lokala AI-partiet i `js/main.js`)
-fungerar automatiskt för alla spel som exponerar den funktionen.
+difficulty, aiPlayerId)` (`difficulty` är `"easy"`/`"medium"`/`"hard"`;
+`aiPlayerId` är alltid `"ai"` i ett lokalt parti — bara relevant om
+rondens fält lagrar riktiga spelar-id:n någonstans, som Backgammons
+dubbleringstärning, annars kan parametern ignoreras) som returnerar en
+handling i samma format som `applyAction` förväntar sig. Allt annat
+(lägesvalsskärmen, det lokala AI-partiet i `js/main.js`) fungerar
+automatiskt för alla spel som exponerar den funktionen.
 
 ## Teknik i korthet
 
