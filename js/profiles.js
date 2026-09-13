@@ -10,7 +10,7 @@
 // profileId är den varaktiga identiteten en spelare väljer EN gång och
 // sedan återanvänder i alla rum den skapar/går med i.
 
-import { paths, dbGet, dbSet } from "./firebase.js?v=51";
+import { paths, dbGet, dbSet } from "./firebase.js?v=52";
 
 const STORAGE_KEY = "luffarschack:profile";
 
