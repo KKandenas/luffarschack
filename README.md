@@ -64,7 +64,9 @@ backend. Inga byggverktyg krävs.
   stenar + omringat territorium), plus 6,5 poäng i komi till Vit för att
   Svart alltid börjar. Medvetna förenklingar (ingen manuell
   "döda stenar"-förhandling, ingen fullständig positional superko) —
-  se kommentaren högst upp i `js/games/go.js` för detaljer.
+  se kommentaren högst upp i `js/games/go.js` för detaljer. Går även att
+  spela mot AI (se "Spela mot AI" nedan) — en betydligt enklare AI-
+  motor än de andra spelens, se den egna förklaringen där.
 - **Kvarn** (Nine Men's Morris/Mühle) — 24 punkter i tre hopkopplade
   fyrkanter, spelat på punkter precis som Go (egen SVG + absolut
   positionerade klickpunkter i `js/games/kvarn.js`, inte det generiska
@@ -145,18 +147,19 @@ nedan.
 
 ## Spela mot AI
 
-Vissa spel (hittills **Dam**, **Kvarn** och **Othello**) kan spelas mot
-en inbyggd AI-motståndare istället för mot en vän — inget rum, ingen
-Firebase inblandad alls: hela partiet körs lokalt i webbläsaren (se
-`startLocalGame`/`applyLocalAction`/`scheduleAiTurn` i `js/main.js`).
-AI:n exponeras av spelmodulen själv via en valfri `getAiMove(round,
-aiSymbol, difficulty)`-export (se `js/games/checkers.js`/
-`js/games/kvarn.js`/`js/games/othello.js`) och markeras med
-`meta.supportsAi = true` — det är det enda som krävs för att ett spel
-ska få lägesvalet "vän eller AI" på hemskärmen. Othello är dessutom det
-första AI-stödjande spelet som använder det generiska rutnätssystemet
-(inte ett eget `renderBoard`) — samma delegerade klick-lyssnare på
-`#board` fungerar rakt av för lokala AI-partier också.
+Vissa spel (hittills **Dam**, **Kvarn**, **Othello** och **Go**) kan
+spelas mot en inbyggd AI-motståndare istället för mot en vän — inget
+rum, ingen Firebase inblandad alls: hela partiet körs lokalt i
+webbläsaren (se `startLocalGame`/`applyLocalAction`/`scheduleAiTurn` i
+`js/main.js`). AI:n exponeras av spelmodulen själv via en valfri
+`getAiMove(round, aiSymbol, difficulty)`-export (se
+`js/games/checkers.js`/`js/games/kvarn.js`/`js/games/othello.js`/
+`js/games/go.js`) och markeras med `meta.supportsAi = true` — det är
+det enda som krävs för att ett spel ska få lägesvalet "vän eller AI" på
+hemskärmen. Othello är dessutom det första AI-stödjande spelet som
+använder det generiska rutnätssystemet (inte ett eget `renderBoard`) —
+samma delegerade klick-lyssnare på `#board` fungerar rakt av för lokala
+AI-partier också.
 
 Tre svårighetsgrader (`easy`/`medium`/`hard`):
 
@@ -170,6 +173,17 @@ Tre svårighetsgrader (`easy`/`medium`/`hard`):
   legalitetsfunktioner för att simulera drag under sökningen istället för
   att duplicera regellogiken — AI:n kan alltså aldrig råka "hitta på" ett
   drag den riktiga motorn skulle underkänt.
+
+**Go är ett specialfall** (`js/games/go.js`): grenfaktorn (upp till ~80
+lediga punkter) och partilängden gör en riktig minimax-till-slutspel
+omöjlig inom tidsbudgeten, till skillnad från de andra spelen. Istället
+begränsas sökningen till kandidatdrag NÄRA befintliga stenar (plus
+hörnpunkterna på ett tomt bräde) och `computeScore` (den RIKTIGA
+poängregeln — stenar + territorium, komi inräknat) används direkt som
+utvärderingsfunktion. AI:n passar självmant när inget kvarvarande drag
+längre förbättrar ställningen (annars skulle den aldrig självmant avsluta
+ronden) — men bara sent i partiet (få lediga lagliga punkter kvar), för
+poängen säger nästan ingenting förrän gränserna faktiskt är dragna.
 
 AI-partier loggas INTE till statistiken (den är till för matcher mellan
 riktiga profiler).
@@ -258,7 +272,7 @@ eller Pythons inbyggda server:
         battleship.js          Sänka skepp: regler + eget bräde (placering + strid, renderBoard)
         connectfour.js         4 i rad: regler + UI-hooks (rutnätsbräde, klick i kolumn -> droppar)
         checkers.js             Dam: regler + eget bräde (renderBoard) + AI
-        go.js                    Go: regler + eget bräde (linjeskärningspunkter, renderBoard)
+        go.js                    Go: regler + eget bräde (linjeskärningspunkter, renderBoard) + AI
         kvarn.js                  Kvarn: regler + eget bräde (linjeskärningspunkter, renderBoard) + AI
         hex.js                     Hex: regler + eget bräde (sexkants-SVG, renderBoard)
         abalone.js                  Abalone: regler + eget bräde (sexkants-SVG, renderBoard)

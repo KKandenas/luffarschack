@@ -20,7 +20,7 @@
 //   drag). Mer sällsynta, längre ko-cykler (t.ex. "trippel ko") stoppas
 //   inte, men är extremt ovanligt i vardagsspel.
 
-import { otherSymbolOf } from "./shared.js?v=51";
+import { otherSymbolOf } from "./shared.js?v=52";
 
 const SIZE = 9;
 const CELL_COUNT = SIZE * SIZE;
@@ -32,6 +32,7 @@ export const meta = {
     label: "Go (9x9)",
     description: "Omringningsspel — flest poäng (stenar + omringat territorium, plus komi till Vit) vinner.",
     boardClass: "board--go",
+    supportsAi: true,
     rules: [
         "Placera stenar växelvis på lediga skärningspunkter (inte i rutor). Målet är att omringa mer territorium och fånga fler av motståndarens stenar än denne fångar av dina.",
         "En sammanhängande grupp av egna stenar fångas och tas bort så fort den saknar \"friheter\" (lediga skärningspunkter direkt intill gruppen).",
@@ -200,6 +201,181 @@ export function statusText({ round, myTurn }) {
         return round.passes === 1 ? "Motståndaren passade — din tur…" : "Motståndarens tur…";
     }
     return round.passes === 1 ? "Motståndaren passade — passa igen för att avsluta ronden" : "Din tur — placera en sten eller passa";
+}
+
+// ============================================================
+// AI-motstånd — Go tillåter INTE samma minimax-till-djupt-slutspel-
+// upplägg som Dam/Kvarn/Othello (grenfaktorn är för hög — upp till ~80
+// lediga punkter, och partierna är för långa för att en fast sökning
+// någonsin når ett verkligt slutläge). Istället: en kort, tidsbudgeterad
+// minimax (samma alpha-beta/iterative-deepening-mönster som de andra
+// spelen) begränsad till kandidatdrag NÄRA befintliga stenar (plus
+// hörnpunkterna på ett tomt bräde) — precis som enkla Go-botar brukar
+// göra — med `computeScore` (den RIKTIGA poängregeln) som
+// utvärderingsfunktion i varje löv. Arbetar direkt på `board`
+// (stones/koPoint) via `simulatePlacement` istället för hela rond-
+// omslaget, eftersom Go:s tur alltid går vidare efter varje placering
+// (ingen "fortsätt samma spelare"-mekanik att ta hänsyn till här).
+// ============================================================
+
+function shuffled(list) {
+    const arr = list.slice();
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+function listLegalPlacements(board, symbol) {
+    const stones = board?.stones || {};
+    const cells = [];
+    for (let cell = 0; cell < CELL_COUNT; cell++) {
+        if (stones[cell]) continue;
+        if (isLegalMove(board, cell, symbol)) cells.push(cell);
+    }
+    return cells;
+}
+
+// Begränsar sökbredden till punkter inom kort avstånd från en befintlig
+// sten (där det mesta av den taktiska aktionen faktiskt sker) — annars
+// blir grenfaktorn på ett halvtomt 9x9-bräde (~40-70 lediga punkter) för
+// stor för att sökas igenom inom tidsbudgeten. Ett helt tomt bräde
+// (öppningsdraget) faller tillbaka på hörnpunkterna (`HOSHI`), klassisk
+// öppningsteori.
+function candidateCells(board, symbol) {
+    const stones = board?.stones || {};
+    const stoneCells = Object.keys(stones).map(Number);
+    if (stoneCells.length === 0) {
+        const opening = HOSHI.map(([r, c]) => idx(r, c)).filter((cell) => isLegalMove(board, cell, symbol));
+        if (opening.length > 0) return opening;
+    }
+
+    const near = new Set();
+    for (const cell of stoneCells) {
+        const row = Math.floor(cell / SIZE);
+        const col = cell % SIZE;
+        for (let dr = -2; dr <= 2; dr++) {
+            for (let dc = -2; dc <= 2; dc++) {
+                const r = row + dr;
+                const c = col + dc;
+                if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) continue;
+                const n = idx(r, c);
+                if (!stones[n]) near.add(n);
+            }
+        }
+    }
+    const candidates = [...near].filter((cell) => isLegalMove(board, cell, symbol));
+    return candidates.length > 0 ? candidates : listLegalPlacements(board, symbol);
+}
+
+// `computeScore` är den RIKTIGA slutpoängregeln (stenar + territorium,
+// komi inräknat) — att återanvända den som utvärderingsfunktion istället
+// för en påhittad heuristik betyder att AI:n alltid strävar mot det som
+// faktiskt avgör ronden.
+function evaluateBoard(board, aiSymbol) {
+    const score = computeScore(board);
+    return score[aiSymbol] - score[otherSymbolOf(aiSymbol)];
+}
+
+// Minimax med alpha-beta-beskärning över kandidatdragen. Varje löv
+// utvärderas direkt (inget "vinnare hittad"-slutläge att upptäcka inom
+// den korta sökhorisonten — Go-partier är för långa för det).
+function minimax(board, symbolToMove, aiSymbol, depth, alpha, beta, deadline) {
+    if (depth <= 0 || Date.now() > deadline) {
+        return evaluateBoard(board, aiSymbol);
+    }
+    const candidates = shuffled(candidateCells(board, symbolToMove));
+    if (candidates.length === 0) return evaluateBoard(board, aiSymbol);
+
+    const maximizing = symbolToMove === aiSymbol;
+    let best = maximizing ? -Infinity : Infinity;
+    for (const cell of candidates) {
+        const nextBoard = simulatePlacement(board, cell, symbolToMove);
+        if (!nextBoard) continue;
+        const score = minimax(nextBoard, otherSymbolOf(symbolToMove), aiSymbol, depth - 1, alpha, beta, deadline);
+        if (maximizing) {
+            best = Math.max(best, score);
+            alpha = Math.max(alpha, best);
+        } else {
+            best = Math.min(best, score);
+            beta = Math.min(beta, best);
+        }
+        if (beta <= alpha) break;
+        if (Date.now() > deadline) break;
+    }
+    return best;
+}
+
+const AI_BUDGET_MS = { medium: 250, hard: 700 };
+const AI_MAX_DEPTH = { medium: 3, hard: 6 };
+
+// Returnerar en handling åt AI:n ({ type: "place", cell } eller
+// { type: "pass" }). Passar hellre än att spela ett drag som inte ens
+// enligt sökningen förbättrar ställningen (t.ex. sent i partiet när
+// gränserna redan är avgjorda) — annars skulle AI:n aldrig självmant
+// passa och partiet dra ut i onödan.
+export function getAiMove(round, aiSymbol, difficulty) {
+    const board = round.board || { stones: {}, koPoint: null };
+    const allLegal = listLegalPlacements(board, aiSymbol);
+    if (allLegal.length === 0) return { type: "pass" };
+    if (difficulty === "easy") {
+        // Slumpar EN kandidat (ingen sökning/bästa-val) men passar hellre
+        // än att spela den om den inte ens förbättrar ställningen — annars
+        // hittar en helt slumpmässig bot alltid NÅGON laglig ruta kvar
+        // någonstans på brädet och partiet tar aldrig slut av sig självt.
+        const cell = shuffled(allLegal)[0];
+        if (allLegal.length <= 8) {
+            const resultBoard = simulatePlacement(board, cell, aiSymbol);
+            const passValue = evaluateBoard(board, aiSymbol);
+            const moveValue = evaluateBoard(resultBoard, aiSymbol);
+            if (moveValue <= passValue) return { type: "pass" };
+        }
+        return { type: "place", cell };
+    }
+
+    const candidates = shuffled(candidateCells(board, aiSymbol));
+    const searchCandidates = candidates.length > 0 ? candidates : shuffled(allLegal);
+
+    const deadline = Date.now() + (AI_BUDGET_MS[difficulty] || AI_BUDGET_MS.medium);
+    const maxDepth = AI_MAX_DEPTH[difficulty] || AI_MAX_DEPTH.medium;
+
+    let bestCell = searchCandidates[0];
+    let bestScore = -Infinity;
+    for (let depth = 1; depth <= maxDepth; depth++) {
+        if (Date.now() > deadline) break;
+        let alpha = -Infinity;
+        let roundBest = null;
+        let roundBestScore = -Infinity;
+        for (const cell of searchCandidates) {
+            const nextBoard = simulatePlacement(board, cell, aiSymbol);
+            if (!nextBoard) continue;
+            const score = minimax(nextBoard, otherSymbolOf(aiSymbol), aiSymbol, depth - 1, alpha, Infinity, deadline);
+            if (score > roundBestScore) {
+                roundBestScore = score;
+                roundBest = cell;
+            }
+            alpha = Math.max(alpha, roundBestScore);
+        }
+        if (roundBest != null && Date.now() <= deadline) {
+            bestCell = roundBest;
+            bestScore = roundBestScore;
+        }
+    }
+
+    // computeScore räknar en tom region som territorium bara när den
+    // UTESLUTANDE gränsar till en färg — tidigt/i mitten av partiet
+    // gränsar det mesta fortfarande till båda färgerna (eller ingen
+    // alls), så "förbättrar det här draget poängen just nu" är en
+    // meningslös fråga då (nästan inget drag syns i poängen ännu, se
+    // filkommentaren högst upp). Passar därför bara när det INTE finns
+    // någon poängmässig vinst ATT hämta OCH det redan är sent i partiet
+    // (få lediga lagliga rutor kvar) — annars skulle AI:n tro att den
+    // lika gärna kan passa redan i öppningen.
+    const passValue = evaluateBoard(board, aiSymbol);
+    const lateGame = allLegal.length <= 8;
+    if (lateGame && bestScore <= passValue) return { type: "pass" };
+    return { type: "place", cell: bestCell };
 }
 
 // ============================================================
